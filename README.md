@@ -9,7 +9,6 @@
 ---
 
 This repository contains the official implementation for **GazeFormer**.
-(./clipgaze.pdf)
 ## Key Features
 
 - **Text-Conditioned Feature Fusion:** Dynamically guides gaze-relevant feature extraction using textual prompts for attributes like illumination, head pose, and gaze direction.
@@ -96,4 +95,5 @@ python train.py
 ### Evaluation
 
 The model is evaluated on the validation set periodically during training. To run a standalone evaluation, you would typically load a checkpoint and run the test loop.
+
 
