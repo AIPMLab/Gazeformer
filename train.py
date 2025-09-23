@@ -171,75 +171,61 @@ def angular_loss(pred, target):
 
 
 if __name__ == "__main__":
-    # torch.autograd.set_detect_anomaly(True)
-    # 构造数据集，这里使用 ZhaoDataset 包裹 DatasetMPIIFaceGazeByGazeHub
-    # TODO 多折验证。这里只验证了第一折 Chen-Xianrui
-    #for eyediap and mpiiface
-    # train_ds = ZhaoDataset(leave_one_out(TRAIN_DATASET_NAME, TRAIN_LABELS_PATH, 0), TRAIN_DATASET_NAME)
-    # test_ds = ZhaoDataset(one(TEST_DATASET_NAME, TEST_LABELS_PATH, 0), TEST_DATASET_NAME)
-    
-    if TRAIN_DATASET_NAME == "ETH-XGaze":
-        train_label_path = [TRAIN_LABELS_PATH / "train.label"]
-        full_ds = ZhaoDataset(TRAIN_IMAGES_PATH, train_label_path, TRAIN_DATASET_NAME)
-        total_len = len(full_ds)
-        test_len = int(total_len * 0.15)
-        train_len = total_len - test_len
-        gen = torch.Generator().manual_seed(SEED)
-        train_ds, test_ds = torch.utils.data.random_split(full_ds, [train_len, test_len], generator=gen)
-        print(f"{TRAIN_DATASET_NAME}划分: 训练集样本数={train_len}, 测试集样本数={test_len}")
-        train_dl = DataLoader(
-            train_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-            generator=gen,
-            num_workers=NUM_WORKERS,
-        )
-        test_dl = DataLoader(
-            test_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-            num_workers=NUM_WORKERS,
-        )
-    elif TRAIN_DATASET_NAME == "Gaze360":
-        train_label_path = [TRAIN_LABELS_PATH / "train.label"]
-        test_label_path = [TRAIN_LABELS_PATH / "test.label"]
-        train_ds = ZhaoDataset(TRAIN_IMAGES_PATH, train_label_path, TRAIN_DATASET_NAME)
-        test_ds = ZhaoDataset(TEST_IMAGES_PATH, test_label_path, TRAIN_DATASET_NAME)
-        print(f"{TRAIN_DATASET_NAME}训练集样本数: {len(train_ds)}, 测试集样本数: {len(test_ds)}")
-        train_dl = DataLoader(
-            train_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-            num_workers=NUM_WORKERS,
-        )
-        test_dl = DataLoader(
-            test_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-            num_workers=NUM_WORKERS,
-        )
+
+
+    def _label_file(p: Path, name: str):
+        return p / name
+
+    train_images_path = DATASETS_PATH / TRAIN_DATASET_NAME / "GazeHub" / "Image" / "train"
+    val_images_path = DATASETS_PATH / TRAIN_DATASET_NAME / "GazeHub" / "Image" / "val"
+    test_images_path = DATASETS_PATH / TEST_DATASET_NAME / "GazeHub" / "Image" / "test"
+
+    train_label_file = _label_file(TRAIN_LABELS_PATH, "train.label")
+    val_label_file = _label_file(TRAIN_LABELS_PATH, "val.label")
+    test_label_file = _label_file(TEST_LABELS_PATH, "test.label")
+
+    gen = torch.Generator().manual_seed(SEED)
+
+    # prefer explicit train/val/test files if present
+    if train_label_file.exists() and val_label_file.exists() and test_label_file.exists():
+        train_ds = ZhaoDataset(train_images_path, [train_label_file], TRAIN_DATASET_NAME)
+        val_ds = ZhaoDataset(val_images_path, [val_label_file], TRAIN_DATASET_NAME)
+        test_ds = ZhaoDataset(test_images_path, [test_label_file], TEST_DATASET_NAME if TRAIN_DATASET_NAME != TEST_DATASET_NAME else TRAIN_DATASET_NAME)
+        print(f"Using explicit train/val/test labels: train={len(train_ds)}, val={len(val_ds)}, test={len(test_ds)}")
     else:
-        train_label_path = leave_one_out(TRAIN_DATASET_NAME, TRAIN_LABELS_PATH, 1)
-        val_label_path = one(TEST_DATASET_NAME, TEST_LABELS_PATH, 1)
-        train_ds = ZhaoDataset(TRAIN_IMAGES_PATH, train_label_path, TRAIN_DATASET_NAME)
-        test_ds = ZhaoDataset(TEST_IMAGES_PATH, val_label_path, TRAIN_DATASET_NAME)
-        print("训练集样本数:", len(train_ds))
-        print("测试集样本数:", len(test_ds))
-        gen = torch.Generator().manual_seed(SEED)
-        train_dl = DataLoader(
-            train_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=True,
-            generator=gen,
-            num_workers=NUM_WORKERS,
-        )
-        print("训练集 batch 数量:", len(train_dl))
-        test_dl = DataLoader(
-            test_ds,
-            batch_size=BATCH_SIZE,
-            shuffle=False,
-            num_workers=NUM_WORKERS,
-        )
+        # fallback: if only train.label exists for TRAIN dataset, split it into 80/10/10
+        if train_label_file.exists():
+            full_ds = ZhaoDataset(train_images_path, [train_label_file], TRAIN_DATASET_NAME)
+            total_len = len(full_ds)
+            test_len = total_len // 10
+            val_len = total_len // 10
+            train_len = total_len - val_len - test_len
+            if train_len <= 0:
+                raise RuntimeError(f"Not enough samples ({total_len}) in {train_label_file} to split")
+            train_ds, val_ds, test_ds = torch.utils.data.random_split(full_ds, [train_len, val_len, test_len], generator=gen)
+            print(f"Fallback split from train.label: train={train_len}, val={val_len}, test={test_len}")
+        else:
+            raise RuntimeError("Required label files not found: either train/val/test or at least train.label must exist.")
+
+    train_dl = DataLoader(
+        train_ds,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        generator=gen,
+        num_workers=NUM_WORKERS,
+    )
+    val_dl = DataLoader(
+        val_ds,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+    )
+    test_dl = DataLoader(
+        test_ds,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=NUM_WORKERS,
+    )
 
     # 加载主模型（例如 CLIP 模型）到 GPU
     model = GEWithCLIPModel().to(DEVICE)
